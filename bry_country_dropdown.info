@@ -1,0 +1,16 @@
+;$Id$
+name = Bryan's country dropdown
+description = A module to automatically add a country dropdown to a form
+package = Bryan Butler Test for Sift
+core = 7.x
+
+
+scripts[] = libs/jquery/jquery-2.1.1.min.js
+scripts[] = js/noconflict.js
+scripts[] = js/main.js
+scripts[] = libs/select2/select2.js
+stylesheets[screen][] = libs/select2/select2.css
+files[] = bry_country_dropdown.install
+files[] = bry_country_dropdown.module
+;dependencies[] = autoload
+;php = 5.2

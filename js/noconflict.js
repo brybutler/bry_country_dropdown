@@ -1,0 +1,1 @@
+window['jq'] = jQuery.noConflict(true);

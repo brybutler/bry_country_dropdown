@@ -1,0 +1,386 @@
+<?php
+// $Id$
+   /**
+    * @file
+    * bry country dropdown module file
+    *
+    * This module adds a country dropdown to the user registration and user edit page.
+    * 
+    * Administrators
+    * can edit the country name and code in the Help menu
+    */
+
+/* TABLE SETUP - WHEN MODULE IS ENABLED, INSTALL AND POPULATE APPROPRIATE TABLES, IF THEY DO NOT EXIST */
+    /**
+    * Implement hook_enable().
+    */
+	function bry_country_dropdown_enable() {
+		
+		//tables schema information
+		$tables = array(
+
+			'bry_users_country' =>  array(
+			    'description' => 'User gained score by type, area and time.',
+			    'fields' => array(
+			      'uc_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'The primary key for User country table', ),
+			      'uc_uid' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'The user id, relates to uid in user table',),
+			      'uc_cl_id' => array('type' => 'int', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'The country id, relates to cl_id in country list table',),
+			     
+			    ),
+			    'primary key' => array('uc_id'),
+			),
+
+		 	'bry_country_list' => array(
+			    'description' => 'List of all the countries in the world.',
+			    'fields' => array(
+			      'cl_id' => array('type' => 'serial', 'unsigned' => TRUE, 'not null' => TRUE, 'description' => 'The primary key for Country list table', ),
+			      'cl_title' => array('type' => 'varchar', 'length' => 50, 'not null' => TRUE, 'default' => '', 'description' => 'The user id, relates to uid in user table',),
+			      'cl_countrycode' => array('type' => 'varchar', 'length' => 2, 'not null' => TRUE, 'default' => '',  'description' => 'The relevant ISO country code to match up with the drop down in the form',),
+			    ),
+			    'primary key' => array('cl_id'),
+			  ),
+
+		 );
+		
+		// check through each table
+		foreach ($tables as $table_name => $table_schema) {
+			// check to see if table doesn't exists
+			if (!db_table_exists($table_name)) {
+				// add table and schema
+				db_create_table($table_name, $table_schema);
+
+				// if table is country list - countries need to be populated
+			  	if ($table_name == 'bry_country_list') {
+
+			  		// Get contents from JSON countries list
+			  		$module_path = DRUPAL_ROOT . '/' . drupal_get_path('module', 'bry_country_dropdown');
+			  		$file = $module_path . "/countries.json";
+  
+					$contents = file_get_contents($file);
+
+					// decode JSON into a list
+					$json_list = new RecursiveIteratorIterator(
+					    new RecursiveArrayIterator(json_decode($contents, TRUE)),
+					    RecursiveIteratorIterator::SELF_FIRST);
+
+					// iterate through list and add each country to db
+					foreach ($json_list as $array) {
+						
+					   if (is_array($array)) {
+					   		
+					    	db_insert('bry_country_list')
+					    		->fields(array(
+									  'cl_title' => $array['name'],
+									  'cl_countrycode' => $array['code'],
+									))
+								->execute();
+					        
+					    } 
+					}
+
+
+			  }
+			}
+		}
+
+		
+
+	}
+
+
+
+/* ADMINISTRATION MENU TO EDIT DROPDOWN LIST VALUES */
+
+    /**
+    * Implement hook_help().
+    */
+  	function bry_country_dropdown_help($path, $arg) {
+	    if ($path == 'admin/help#bry_country_dropdown') {
+	  		return t('Bry Country Dropdown adds a country dropdown list into the Create User form.');
+		} 
+	}
+
+
+   /**
+    * Implement hook_menu() 
+    * Add menu to edit country drop down
+    */
+   function bry_country_dropdown_menu() {
+     $items = array();
+
+
+      $items['admin/config/bcd'] = array(
+       'title' => 'Edit country list',
+       'description' => 'Edit country details',
+       'page callback' => 'drupal_get_form',
+       'page arguments' => array('bry_country_dropdown_form', 1),
+       'access arguments' => array('administer users'),
+       'type' => MENU_NORMAL_ITEM,
+		);
+     return $items;
+	}
+
+	function bry_country_dropdown_form($form, &$form_state) {
+
+		// start auto complete library, Select2
+		start_js_lib(); 
+
+		// add country drop down list
+		$form['country_dropdown'] = get_country_list(true);
+	 	
+		// add country title textfield
+	    $form['edit_country_title'] = array(
+			'#type' => 'textfield',
+	       '#title' => t('Country title'),
+	     	'#required' => TRUE,
+	       '#size' => 40,
+	  		'#maxlength' => 120,
+
+		);
+
+	    // add country code textfield
+		$form['edit_country_code'] = array(
+			'#type' => 'textfield',
+	       '#title' => t('Country code'),
+	       '#size' => 2,
+	       '#required' => TRUE,
+	  		'#maxlength' => 2,
+	  	);
+
+		// add submit button
+		 $form['submit'] = array(
+	       '#type' => 'submit',
+	       '#value' => t('Update country'),
+	     );
+
+	     return $form;
+	}
+
+	// validate form content
+	function bry_country_dropdown_form_validate($form, &$form_state) {
+		// send error if country hasn't been chosen
+		if (($form_state['values']['country_dropdown']) == 'x') {
+	    	form_set_error('country_dropdown', t('No country selected'));
+	  	}
+
+	  	// send error if the following are not filled correctly
+	  	$check_array = array('edit_country_title' => 'Country title', 'edit_country_code' => 'Country code');
+
+	  	foreach ($check_array as $form_code => $form_label) {
+	  		// get approprate form value
+	  		$check_value =  $form_state['values'][$form_code];
+
+	  		// throw error if value empty or country string has something other than letters and spaces
+	  		if ((empty($check_value)) or (!preg_match('/^[a-zA-Z\s]+$/',$check_value))) {
+		    	form_set_error($form_code, t($form_label .' must be filled with letters'));
+			}
+
+	  	}
+	}
+
+	// Execute submission of edit country list
+	function bry_country_dropdown_form_submit($form, &$form_state) {
+
+		 // update country information in db
+		 $wasupdated = db_update('bry_country_list') 
+			  ->fields(array(
+			    'cl_title' => trim($form_state['values']['edit_country_title']),
+			    'cl_countrycode' => trim($form_state['values']['edit_country_code']),
+			  ))
+			  ->condition('cl_id', $form_state['values']['country_dropdown'], '=')
+			  ->execute();
+
+		// Ensure country was updated and send message to user.
+		 if ($wasupdated) {
+		 	$msg = 'Country was updated to '.$form_state['values']['edit_country_title']. ' ('.$form_state['values']['edit_country_code'].')';
+		 } else {
+		 	$msg = 'Country did not update. The values may not have changed.  Try changing a value and submitting.';
+		 }
+		 // feedback to user
+		drupal_set_message($msg);
+	
+	}
+
+
+/* ADD DROPDOWN TO ADD USER AND EDIT USER FORMS AND RENDER RESULT */
+
+	/* ADD USER FORM */
+	/**
+    * Implement hook_form_alter
+    * Hook into Add user form so users can add country
+    */
+
+	function bry_country_dropdown_form_user_register_form_alter(&$form, &$form_state) {
+		// start auto complete library, Select2
+		start_js_lib(); 
+
+		// add dropdown to form and add extra callback when form submits
+		$form['account']['country_dropdown'] = get_country_list();
+	  	$form['#submit'][] = 'bry_country_dropdown_user_register_submit';
+
+	}
+
+	function bry_country_dropdown_user_register_submit(&$form, &$form_state) {
+
+		// get form submission details
+		$country_id = $form_state['values']['country_dropdown'];
+		$email = $form_state['values']['mail'];
+
+		// get user id from email - unique field
+		$user_id = db_select('users', 'u')
+	    ->fields('u', array('uid'))
+	    ->condition('mail', $email,'=')
+	    ->execute()
+	    ->fetch();
+
+	    // add 
+	 	if ($user_id->uid) {
+			bry_add_country_db($user_id->uid, $country_id);
+			drupal_set_message('Country also assigned to user');
+		}
+
+		 
+	}
+
+
+
+	/* EDIT USER FORM */
+	/**
+    * Implement hook_form_alter
+    * Hook into Edit user form so users can see and edit countries
+    */
+
+	function bry_country_dropdown_form_user_profile_form_alter(&$form, &$form_state) {
+		// start auto complete library, Select2
+		start_js_lib(); 
+		
+		// get user id from url parameter
+		$userid = arg(1);
+
+		/* get user's country id, with default being zero - 
+		   users created before module was enabled won't have a country */
+		$result = db_select('bry_users_country', 'buc')
+	    ->fields('buc', array('uc_cl_id'))
+	    ->condition('uc_uid', $userid,'=')
+	    ->execute()
+	    ->fetch();
+
+	    $country_id = 0;
+		if (isset($result->uc_cl_id)) {
+			$country_id = $result->uc_cl_id;
+		}
+
+		// add dropdown to form and add extra callback when form submits
+		$form['account']['country_dropdown'] = get_country_list(false, $country_id);
+	  	$form['#submit'][] = 'bry_country_dropdown_user_profile_submit';
+		
+
+	}
+
+	function bry_country_dropdown_user_profile_submit(&$form, &$form_state) {
+		// get user id from url parameter
+		$userid = arg(1);
+
+		// get country id from form submisssion
+		$country_id = $form_state['values']['country_dropdown'];
+		
+		// if user id and country id exist then add/update country
+		if ((isset($userid)) and (isset($country_id))) {
+			
+			// update country
+			$result = db_update('bry_users_country')
+					->fields(array(
+						  'uc_cl_id' => $country_id,
+						))
+					->condition('uc_uid', $userid, '=')
+					->execute();
+
+			/* if didn't update, assume it is a user from before 
+			module was enabled and add country */
+			if ($result == 0) {
+				bry_add_country_db($userid, $country_id);
+			}
+
+			// send feedback to user
+			drupal_set_message('Country updated for user');
+		}
+	}
+
+/* COMMON FUNCTIONS */
+	/* ADD COUNTRY AND USER TO DB */
+	function bry_add_country_db($user_id, $country_id) {
+		db_insert('bry_users_country')
+				->fields(array(
+					  'uc_uid' => $user_id,
+					  'uc_cl_id' => $country_id,
+					))
+				->execute();
+	}
+
+	/* GET COUNTRY LIST FOR DROPDOWN */
+	function get_country_list($config = false, $selectedValue = false) {
+		$country_array = array();
+		
+		// default selected fields for query
+		$select_fields = array('cl_id', 'cl_title');
+
+		// default form data for dropdown
+		$select_country = array(
+	     '#type' => 'select',
+	     '#title' => t('Country'),
+	     '#description' => t('Choose your country of citizenship'),
+	    );
+
+
+		// if dropdown is for administration purposes
+		if ($config) {
+			// add blank value instruction at top
+			$country_array['x'] = 'Choose a country';
+
+			// add appropriate fields 
+			$select_fields = array('cl_id', 'cl_title', 'cl_countrycode');
+
+			// change description
+			$select_country['#description'] = t('Choose a country to edit');
+
+			// add onchange javascript function
+	    	$select_country['#attributes'] = array('onchange' => 'bry_fill_country_info(this);');
+	    
+		} 
+
+		// if already has value - ie for edit user 
+		if ($selectedValue) {
+			$select_country['#default_value'] = $selectedValue;
+		}
+
+		// get countries from db
+		$result = db_select('bry_country_list', 'bcl')
+	    ->fields('bcl', $select_fields)
+	    ->orderBy('cl_title')
+	    ->execute();
+
+	    // iterate through the result
+	    foreach ($result as $array) {
+	    	 // add to country array
+	    	$country_array[$array->$select_fields[0]] = t($array->$select_fields[1]);
+
+	    	 // add extra field, if any
+	    	if (isset($select_fields[2])) {
+	    		$country_array[$array->$select_fields[0]] .= t(' ('.$array->$select_fields[2].')');
+	    	}
+	    }
+		
+		// set as form options and return
+		$select_country['#options'] = $country_array;
+
+	    return $select_country;
+	}
+
+
+	/* TRIGGER FOR SELECT 2 LIBRARY */
+	function start_js_lib() {
+		$drupalpath = drupal_get_path('module', 'bry_country_dropdown');
+		drupal_add_js($drupalpath.'/js/start_select2.js');
+	}
+
+?>
